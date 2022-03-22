@@ -72,6 +72,8 @@ public class HiveSyncContext {
     hiveSyncConfig.databaseName = conf.getString(FlinkOptions.HIVE_SYNC_DB);
     hiveSyncConfig.tableName = conf.getString(FlinkOptions.HIVE_SYNC_TABLE);
     hiveSyncConfig.syncMode = conf.getString(FlinkOptions.HIVE_SYNC_MODE);
+    hiveSyncConfig.useKerberos = conf.getBoolean(FlinkOptions.HIVE_SYNC_USE_KERBEROS);
+    hiveSyncConfig.kerberosPrincipal = conf.getString(FlinkOptions.HIVE_SYNC_KERBEROS_PRINCIPAL);
     hiveSyncConfig.hiveUser = conf.getString(FlinkOptions.HIVE_SYNC_USERNAME);
     hiveSyncConfig.hivePass = conf.getString(FlinkOptions.HIVE_SYNC_PASSWORD);
     hiveSyncConfig.tableProperties = conf.getString(FlinkOptions.HIVE_SYNC_TABLE_PROPERTIES);
