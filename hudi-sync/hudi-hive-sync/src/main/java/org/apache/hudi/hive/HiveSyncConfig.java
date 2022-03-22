@@ -77,6 +77,12 @@ public class HiveSyncConfig implements Serializable {
   @Parameter(names = {"--sync-mode"}, description = "Mode to choose for Hive ops. Valid values are hms, jdbc and hiveql")
   public String syncMode;
 
+  @Parameter(names = {"--hive-use-kerberos"}, description = "Whether to use Kerberos for Hive. default false")
+  public Boolean useKerberos = false;
+
+  @Parameter(names = {"--hive-kerberos-principal"}, description = "hive metastore principal")
+  public String kerberosPrincipal = "";
+
   @Parameter(names = {"--auto-create-database"}, description = "Auto create hive database")
   public Boolean autoCreateDatabase = true;
 
@@ -146,6 +152,8 @@ public class HiveSyncConfig implements Serializable {
     newConfig.syncAsSparkDataSourceTable = cfg.syncAsSparkDataSourceTable;
     newConfig.sparkSchemaLengthThreshold = cfg.sparkSchemaLengthThreshold;
     newConfig.withOperationField = cfg.withOperationField;
+    newConfig.useKerberos = cfg.useKerberos;
+    newConfig.kerberosPrincipal = cfg.kerberosPrincipal;
     newConfig.isConditionalSync = cfg.isConditionalSync;
     return newConfig;
   }
@@ -178,6 +186,8 @@ public class HiveSyncConfig implements Serializable {
       + ", syncAsSparkDataSourceTable=" + syncAsSparkDataSourceTable
       + ", sparkSchemaLengthThreshold=" + sparkSchemaLengthThreshold
       + ", withOperationField=" + withOperationField
+      + ", useKerberos=" + useKerberos
+      + ", kerberosPrincipal=" + kerberosPrincipal
       + ", isConditionalSync=" + isConditionalSync
       + '}';
   }
