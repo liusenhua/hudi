@@ -230,7 +230,7 @@
           <configLocation>style/checkstyle.xml</configLocation>
           <suppressionsLocation>style/checkstyle-suppressions.xml</suppressionsLocation>
           <suppressionsFileExpression>checkstyle.suppressions.file</suppressionsFileExpression>
-          <failOnViolation>true</failOnViolation>
+          <failOnViolation>false</failOnViolation>
           <violationSeverity>warning</violationSeverity>
           <includeTestSourceDirectory>true</includeTestSourceDirectory>
           <sourceDirectories>
@@ -460,7 +460,7 @@
           <version>1.0.0</version>
           <configuration>
             <verbose>false</verbose>
-            <failOnViolation>true</failOnViolation>
+            <failOnViolation>false</failOnViolation>
             <includeTestSourceDirectory>true</includeTestSourceDirectory>
             <failOnWarning>false</failOnWarning>
             <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>
