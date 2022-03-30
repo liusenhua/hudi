@@ -58,6 +58,12 @@ public class HiveSyncConfig extends HoodieSyncConfig {
   @Parameter(names = {"--sync-mode"}, description = "Mode to choose for Hive ops. Valid values are hms, jdbc and hiveql")
   public String syncMode;
 
+  @Parameter(names = {"--hive-use-kerberos"}, description = "Whether to use Kerberos for Hive. default false")
+  public Boolean useKerberos = false;
+
+  @Parameter(names = {"--hive-kerberos-principal"}, description = "hive metastore principal")
+  public String kerberosPrincipal = "";
+
   @Parameter(names = {"--auto-create-database"}, description = "Auto create hive database")
   public Boolean autoCreateDatabase;
 
@@ -105,6 +111,16 @@ public class HiveSyncConfig extends HoodieSyncConfig {
       .key("hoodie.datasource.hive_sync.enable")
       .defaultValue("false")
       .withDocumentation("When set to true, register/sync the table to Apache Hive metastore.");
+
+  public static final ConfigProperty<String> HIVE_SYNC_USE_KERBEROS = ConfigProperty
+      .key("hoodie.datasource.hive_sync.use_kerberos")
+      .defaultValue("false")
+      .withDocumentation("Whether to use Kerberos authentication.");
+
+  public static final ConfigProperty<String> HIVE_SYNC_KERBEROS_PRINCIPAL = ConfigProperty
+      .key("hive_sync.kerberos_principal")
+      .defaultValue("")
+      .withDocumentation("Hive metastore principal.");
 
   public static final ConfigProperty<String> HIVE_USER = ConfigProperty
       .key("hoodie.datasource.hive_sync.username")
@@ -230,6 +246,8 @@ public class HiveSyncConfig extends HoodieSyncConfig {
     this.useJdbc = getBooleanOrDefault(HIVE_USE_JDBC);
     this.metastoreUris = getStringOrDefault(METASTORE_URIS);
     this.syncMode = getString(HIVE_SYNC_MODE);
+    this.useKerberos = getBooleanOrDefault(HIVE_SYNC_USE_KERBEROS);
+    this.kerberosPrincipal = getStringOrDefault(HIVE_SYNC_KERBEROS_PRINCIPAL);
     this.autoCreateDatabase = getBooleanOrDefault(HIVE_AUTO_CREATE_DATABASE);
     this.ignoreExceptions = getBooleanOrDefault(HIVE_IGNORE_EXCEPTIONS);
     this.skipROSuffix = getBooleanOrDefault(HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE);
@@ -255,6 +273,8 @@ public class HiveSyncConfig extends HoodieSyncConfig {
       + ", hivePass='" + hivePass + '\''
       + ", jdbcUrl='" + jdbcUrl + '\''
       + ", metastoreUris='" + metastoreUris + '\''
+      + ", useKerberos=" + useKerberos
+      + ", kerberosPrincipal=" + kerberosPrincipal
       + ", basePath='" + basePath + '\''
       + ", partitionFields=" + partitionFields
       + ", partitionValueExtractorClass='" + partitionValueExtractorClass + '\''

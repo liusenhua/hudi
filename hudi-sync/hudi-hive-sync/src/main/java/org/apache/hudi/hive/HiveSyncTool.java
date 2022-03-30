@@ -95,6 +95,10 @@ public class HiveSyncTool extends AbstractSyncTool {
       if (StringUtils.isNullOrEmpty(hiveConf.get(HiveConf.ConfVars.METASTOREURIS.varname))) {
         hiveConf.set(HiveConf.ConfVars.METASTOREURIS.varname, hiveSyncConfig.metastoreUris);
       }
+      if (hiveSyncConfig.useKerberos) {
+        hiveConf.set("hive.metastore.sasl.enabled", "true");
+        hiveConf.set("hive.metastore.kerberos.principal", hiveSyncConfig.kerberosPrincipal);
+      }
       this.hoodieHiveClient = new HoodieHiveClient(hiveSyncConfig, hiveConf, fs);
     } catch (RuntimeException e) {
       if (hiveSyncConfig.ignoreExceptions) {
