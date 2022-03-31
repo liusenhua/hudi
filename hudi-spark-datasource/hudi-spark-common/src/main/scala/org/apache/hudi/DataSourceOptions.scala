@@ -458,7 +458,7 @@ object DataSourceWriteOptions {
   val HIVE_SYNC_USE_KERBEROS: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_USE_KERBEROS;
 
   val HIVE_SYNC_KERBEROS_PRINCIPAL: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_KERBEROS_PRINCIPAL;
-  
+
   // Async Compaction - Enabled by default for MOR
   val ASYNC_COMPACT_ENABLE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.compaction.async.enable")
