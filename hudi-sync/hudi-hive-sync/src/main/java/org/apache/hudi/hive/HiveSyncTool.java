@@ -18,14 +18,6 @@
 
 package org.apache.hudi.hive;
 
-import com.beust.jcommander.JCommander;
-import org.apache.avro.Schema;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.Partition;
-
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieFileFormat;
@@ -35,28 +27,27 @@ import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.InvalidTableException;
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
-import org.apache.hudi.hive.util.ConfigUtils;
+import org.apache.hudi.sync.common.util.ConfigUtils;
 import org.apache.hudi.hive.util.HiveSchemaUtil;
-import org.apache.hudi.hive.util.Parquet2SparkSchemaUtils;
 import org.apache.hudi.sync.common.AbstractSyncHoodieClient.PartitionEvent;
 import org.apache.hudi.sync.common.AbstractSyncHoodieClient.PartitionEvent.PartitionEventType;
 import org.apache.hudi.sync.common.AbstractSyncTool;
+import org.apache.hudi.sync.common.model.Partition;
 
+import com.beust.jcommander.JCommander;
+import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
-import org.apache.parquet.schema.GroupType;
 import org.apache.parquet.schema.MessageType;
-import org.apache.parquet.schema.PrimitiveType;
-import org.apache.parquet.schema.Type;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
-import static org.apache.parquet.schema.OriginalType.UTF8;
-import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY;
 
 /**
  * Tool to sync a hoodie HDFS table with a hive metastore table. Either use it as a api
@@ -66,31 +57,32 @@ import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY;
  * partitions incrementally (all the partitions modified since the last commit)
  */
 @SuppressWarnings("WeakerAccess")
-public class HiveSyncTool extends AbstractSyncTool {
+public class HiveSyncTool extends AbstractSyncTool implements AutoCloseable {
 
   private static final Logger LOG = LogManager.getLogger(HiveSyncTool.class);
   public static final String SUFFIX_SNAPSHOT_TABLE = "_rt";
   public static final String SUFFIX_READ_OPTIMIZED_TABLE = "_ro";
 
-  protected final HiveSyncConfig hiveSyncConfig;
-  protected HoodieHiveClient hoodieHiveClient = null;
+  protected HiveSyncConfig hiveSyncConfig;
+  protected AbstractHiveSyncHoodieClient hoodieHiveClient;
   protected String snapshotTableName = null;
   protected Option<String> roTableName = null;
 
   public HiveSyncTool(TypedProperties props, Configuration conf, FileSystem fs) {
-    super(props, conf, fs);
-    this.hiveSyncConfig = new HiveSyncConfig(props);
-    init(hiveSyncConfig, new HiveConf(conf, HiveConf.class));
+    this(new HiveSyncConfig(props), new HiveConf(conf, HiveConf.class), fs);
   }
 
-  @Deprecated
   public HiveSyncTool(HiveSyncConfig hiveSyncConfig, HiveConf hiveConf, FileSystem fs) {
     super(hiveSyncConfig.getProps(), hiveConf, fs);
-    this.hiveSyncConfig = hiveSyncConfig;
-    init(hiveSyncConfig, hiveConf);
+    // TODO: reconcile the way to set METASTOREURIS
+    if (StringUtils.isNullOrEmpty(hiveConf.get(HiveConf.ConfVars.METASTOREURIS.varname))) {
+      hiveConf.set(HiveConf.ConfVars.METASTOREURIS.varname, hiveSyncConfig.metastoreUris);
+    }
+    initClient(hiveSyncConfig, hiveConf);
+    initConfig(hiveSyncConfig);
   }
 
-  private void init(HiveSyncConfig hiveSyncConfig, HiveConf hiveConf) {
+  protected void initClient(HiveSyncConfig hiveSyncConfig, HiveConf hiveConf) {
     try {
       if (StringUtils.isNullOrEmpty(hiveConf.get(HiveConf.ConfVars.METASTOREURIS.varname))) {
         hiveConf.set(HiveConf.ConfVars.METASTOREURIS.varname, hiveSyncConfig.metastoreUris);
@@ -107,12 +99,16 @@ public class HiveSyncTool extends AbstractSyncTool {
         throw new HoodieHiveSyncException("Got runtime exception when hive syncing", e);
       }
     }
+  }
 
+  private void initConfig(HiveSyncConfig hiveSyncConfig) {
     // Set partitionFields to empty, when the NonPartitionedExtractor is used
+    // TODO: HiveSyncConfig should be responsible for inferring config value
     if (NonPartitionedExtractor.class.getName().equals(hiveSyncConfig.partitionValueExtractorClass)) {
       LOG.warn("Set partitionFields to empty, since the NonPartitionedExtractor is used");
       hiveSyncConfig.partitionFields = new ArrayList<>();
     }
+    this.hiveSyncConfig = hiveSyncConfig;
     if (hoodieHiveClient != null) {
       switch (hoodieHiveClient.getTableType()) {
         case COPY_ON_WRITE:
@@ -143,9 +139,7 @@ public class HiveSyncTool extends AbstractSyncTool {
     } catch (RuntimeException re) {
       throw new HoodieException("Got runtime exception when hive syncing " + hiveSyncConfig.tableName, re);
     } finally {
-      if (hoodieHiveClient != null) {
-        hoodieHiveClient.close();
-      }
+      close();
     }
   }
 
@@ -166,6 +160,17 @@ public class HiveSyncTool extends AbstractSyncTool {
     }
   }
 
+  @Override
+  public void close() {
+    if (hoodieHiveClient != null) {
+      try {
+        hoodieHiveClient.close();
+      } catch (Exception e) {
+        throw new HoodieHiveSyncException("Fail to close sync client.", e);
+      }
+    }
+  }
+
   protected void syncHoodieTable(String tableName, boolean useRealtimeInputFormat,
                                boolean readAsOptimized) {
     LOG.info("Trying to sync hoodie table " + tableName + " with base path " + hoodieHiveClient.getBasePath()
@@ -174,7 +179,7 @@ public class HiveSyncTool extends AbstractSyncTool {
     // check if the database exists else create it
     if (hiveSyncConfig.autoCreateDatabase) {
       try {
-        if (!hoodieHiveClient.doesDataBaseExist(hiveSyncConfig.databaseName)) {
+        if (!hoodieHiveClient.databaseExists(hiveSyncConfig.databaseName)) {
           hoodieHiveClient.createDatabase(hiveSyncConfig.databaseName);
         }
       } catch (Exception e) {
@@ -182,14 +187,14 @@ public class HiveSyncTool extends AbstractSyncTool {
         LOG.warn("Unable to create database", e);
       }
     } else {
-      if (!hoodieHiveClient.doesDataBaseExist(hiveSyncConfig.databaseName)) {
+      if (!hoodieHiveClient.databaseExists(hiveSyncConfig.databaseName)) {
         LOG.error("Hive database does not exist " + hiveSyncConfig.databaseName);
         throw new HoodieHiveSyncException("hive database does not exist " + hiveSyncConfig.databaseName);
       }
     }
 
     // Check if the necessary table exists
-    boolean tableExists = hoodieHiveClient.doesTableExist(tableName);
+    boolean tableExists = hoodieHiveClient.tableExists(tableName);
 
     // check if isDropPartition
     boolean isDropPartition = hoodieHiveClient.isDropPartition();
@@ -242,8 +247,9 @@ public class HiveSyncTool extends AbstractSyncTool {
     Map<String, String> tableProperties = ConfigUtils.toMap(hiveSyncConfig.tableProperties);
     Map<String, String> serdeProperties = ConfigUtils.toMap(hiveSyncConfig.serdeProperties);
     if (hiveSyncConfig.syncAsSparkDataSourceTable) {
-      Map<String, String> sparkTableProperties = getSparkTableProperties(hiveSyncConfig.sparkSchemaLengthThreshold, schema);
-      Map<String, String> sparkSerdeProperties = getSparkSerdeProperties(readAsOptimized);
+      Map<String, String> sparkTableProperties = getSparkTableProperties(hiveSyncConfig.partitionFields,
+          hiveSyncConfig.sparkVersion, hiveSyncConfig.sparkSchemaLengthThreshold, schema);
+      Map<String, String> sparkSerdeProperties = getSparkSerdeProperties(readAsOptimized, hiveSyncConfig.basePath);
       tableProperties.putAll(sparkTableProperties);
       serdeProperties.putAll(sparkSerdeProperties);
     }
@@ -304,82 +310,13 @@ public class HiveSyncTool extends AbstractSyncTool {
   }
 
   /**
-   * Get Spark Sql related table properties. This is used for spark datasource table.
-   * @param schema  The schema to write to the table.
-   * @return A new parameters added the spark's table properties.
-   */
-  private Map<String, String> getSparkTableProperties(int schemaLengthThreshold, MessageType schema)  {
-    // Convert the schema and partition info used by spark sql to hive table properties.
-    // The following code refers to the spark code in
-    // https://github.com/apache/spark/blob/master/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveExternalCatalog.scala
-    GroupType originGroupType = schema.asGroupType();
-    List<String> partitionNames = hiveSyncConfig.partitionFields;
-    List<Type> partitionCols = new ArrayList<>();
-    List<Type> dataCols = new ArrayList<>();
-    Map<String, Type> column2Field = new HashMap<>();
-
-    for (Type field : originGroupType.getFields()) {
-      column2Field.put(field.getName(), field);
-    }
-    // Get partition columns and data columns.
-    for (String partitionName : partitionNames) {
-      // Default the unknown partition fields to be String.
-      // Keep the same logical with HiveSchemaUtil#getPartitionKeyType.
-      partitionCols.add(column2Field.getOrDefault(partitionName,
-              new PrimitiveType(Type.Repetition.REQUIRED, BINARY, partitionName, UTF8)));
-    }
-
-    for (Type field : originGroupType.getFields()) {
-      if (!partitionNames.contains(field.getName())) {
-        dataCols.add(field);
-      }
-    }
-
-    List<Type> reOrderedFields = new ArrayList<>();
-    reOrderedFields.addAll(dataCols);
-    reOrderedFields.addAll(partitionCols);
-    GroupType reOrderedType = new GroupType(originGroupType.getRepetition(), originGroupType.getName(), reOrderedFields);
-
-    Map<String, String> sparkProperties = new HashMap<>();
-    sparkProperties.put("spark.sql.sources.provider", "hudi");
-    if (!StringUtils.isNullOrEmpty(hiveSyncConfig.sparkVersion)) {
-      sparkProperties.put("spark.sql.create.version", hiveSyncConfig.sparkVersion);
-    }
-    // Split the schema string to multi-parts according the schemaLengthThreshold size.
-    String schemaString = Parquet2SparkSchemaUtils.convertToSparkSchemaJson(reOrderedType);
-    int numSchemaPart = (schemaString.length() + schemaLengthThreshold - 1) / schemaLengthThreshold;
-    sparkProperties.put("spark.sql.sources.schema.numParts", String.valueOf(numSchemaPart));
-    // Add each part of schema string to sparkProperties
-    for (int i = 0; i < numSchemaPart; i++) {
-      int start = i * schemaLengthThreshold;
-      int end = Math.min(start + schemaLengthThreshold, schemaString.length());
-      sparkProperties.put("spark.sql.sources.schema.part." + i, schemaString.substring(start, end));
-    }
-    // Add partition columns
-    if (!partitionNames.isEmpty()) {
-      sparkProperties.put("spark.sql.sources.schema.numPartCols", String.valueOf(partitionNames.size()));
-      for (int i = 0; i < partitionNames.size(); i++) {
-        sparkProperties.put("spark.sql.sources.schema.partCol." + i, partitionNames.get(i));
-      }
-    }
-    return sparkProperties;
-  }
-
-  private Map<String, String> getSparkSerdeProperties(boolean readAsOptimized) {
-    Map<String, String> sparkSerdeProperties = new HashMap<>();
-    sparkSerdeProperties.put("path", hiveSyncConfig.basePath);
-    sparkSerdeProperties.put(ConfigUtils.IS_QUERY_AS_RO_TABLE, String.valueOf(readAsOptimized));
-    return sparkSerdeProperties;
-  }
-
-  /**
    * Syncs the list of storage partitions passed in (checks if the partition is in hive, if not adds it or if the
    * partition path does not match, it updates the partition path).
    */
   private boolean syncPartitions(String tableName, List<String> writtenPartitionsSince, boolean isDropPartition) {
     boolean partitionsChanged;
     try {
-      List<Partition> hivePartitions = hoodieHiveClient.scanTablePartitions(tableName);
+      List<Partition> hivePartitions = hoodieHiveClient.getAllPartitions(tableName);
       List<PartitionEvent> partitionEvents =
           hoodieHiveClient.getPartitionEvents(hivePartitions, writtenPartitionsSince, isDropPartition);
 
@@ -398,7 +335,7 @@ public class HiveSyncTool extends AbstractSyncTool {
       List<String> dropPartitions = filterPartitions(partitionEvents, PartitionEventType.DROP);
       if (!dropPartitions.isEmpty()) {
         LOG.info("Drop Partitions " + dropPartitions);
-        hoodieHiveClient.dropPartitionsToTable(tableName, dropPartitions);
+        hoodieHiveClient.dropPartitions(tableName, dropPartitions);
       }
 
       partitionsChanged = !updatePartitions.isEmpty() || !newPartitions.isEmpty() || !dropPartitions.isEmpty();

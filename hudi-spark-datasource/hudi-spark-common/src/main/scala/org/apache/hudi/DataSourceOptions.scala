@@ -18,17 +18,19 @@
 package org.apache.hudi
 
 import org.apache.hudi.DataSourceReadOptions.{QUERY_TYPE, QUERY_TYPE_READ_OPTIMIZED_OPT_VAL, QUERY_TYPE_SNAPSHOT_OPT_VAL}
+import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.common.config.{ConfigProperty, HoodieConfig}
 import org.apache.hudi.common.fs.ConsistencyGuardConfig
 import org.apache.hudi.common.model.{HoodieTableType, WriteOperationType}
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.util.Option
+import org.apache.hudi.common.util.ValidationUtils.checkState
 import org.apache.hudi.config.{HoodieClusteringConfig, HoodieWriteConfig}
-import org.apache.hudi.hive.util.ConfigUtils
-import org.apache.hudi.hive.{HiveSyncConfig, HiveSyncTool, MultiPartKeysValueExtractor, NonPartitionedExtractor, SlashEncodedDayPartitionValueExtractor}
+import org.apache.hudi.hive.{HiveSyncConfig, HiveSyncTool}
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.{ComplexKeyGenerator, CustomKeyGenerator, NonpartitionedKeyGenerator, SimpleKeyGenerator}
 import org.apache.hudi.sync.common.HoodieSyncConfig
+import org.apache.hudi.sync.common.util.ConfigUtils
 import org.apache.log4j.LogManager
 import org.apache.spark.sql.execution.datasources.{DataSourceUtils => SparkDataSourceUtils}
 
@@ -45,6 +47,7 @@ import scala.language.implicitConversions
   * Options supported for reading hoodie tables.
   */
 object DataSourceReadOptions {
+  import DataSourceOptionsHelper._
 
   val QUERY_TYPE_SNAPSHOT_OPT_VAL = "snapshot"
   val QUERY_TYPE_READ_OPTIMIZED_OPT_VAL = "read_optimized"
@@ -53,6 +56,7 @@ object DataSourceReadOptions {
     .key("hoodie.datasource.query.type")
     .defaultValue(QUERY_TYPE_SNAPSHOT_OPT_VAL)
     .withAlternatives("hoodie.datasource.view.type")
+    .withValidValues(QUERY_TYPE_SNAPSHOT_OPT_VAL, QUERY_TYPE_READ_OPTIMIZED_OPT_VAL, QUERY_TYPE_INCREMENTAL_OPT_VAL)
     .withDocumentation("Whether data needs to be read, in incremental mode (new data since an instantTime) " +
       "(or) Read Optimized mode (obtain latest view, based on base files) (or) Snapshot mode " +
       "(obtain latest view, by merging base and (if any) log files)")
@@ -62,6 +66,7 @@ object DataSourceReadOptions {
   val REALTIME_MERGE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.merge.type")
     .defaultValue(REALTIME_PAYLOAD_COMBINE_OPT_VAL)
+    .withValidValues(REALTIME_SKIP_MERGE_OPT_VAL, REALTIME_PAYLOAD_COMBINE_OPT_VAL)
     .withDocumentation("For Snapshot query on merge on read table, control whether we invoke the record " +
       s"payload implementation to merge (${REALTIME_PAYLOAD_COMBINE_OPT_VAL}) or skip merging altogether" +
       s"${REALTIME_SKIP_MERGE_OPT_VAL}")
@@ -119,10 +124,19 @@ object DataSourceReadOptions {
 
   val ENABLE_DATA_SKIPPING: ConfigProperty[Boolean] = ConfigProperty
     .key("hoodie.enable.data.skipping")
-    .defaultValue(true)
+    .defaultValue(false)
     .sinceVersion("0.10.0")
     .withDocumentation("Enables data-skipping allowing queries to leverage indexes to reduce the search space by " +
       "skipping over files")
+
+  val EXTRACT_PARTITION_VALUES_FROM_PARTITION_PATH: ConfigProperty[Boolean] =
+    ConfigProperty.key("hoodie.datasource.read.extract.partition.values.from.path")
+      .defaultValue(false)
+      .sinceVersion("0.11.0")
+      .withDocumentation("When set to true, values for partition columns (partition values) will be extracted" +
+        " from physical partition path (default Spark behavior). When set to false partition values will be" +
+        " read from the data file (in Hudi partition columns are persisted by default)." +
+        " This config is a fallback allowing to preserve existing behavior, and should not be used otherwise.")
 
   val INCREMENTAL_FALLBACK_TO_FULL_TABLE_SCAN_FOR_NON_EXISTING_FILES: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.read.incr.fallback.fulltablescan.enable")
@@ -185,6 +199,8 @@ object DataSourceReadOptions {
   */
 object DataSourceWriteOptions {
 
+  import DataSourceOptionsHelper._
+
   val BULK_INSERT_OPERATION_OPT_VAL = WriteOperationType.BULK_INSERT.value
   val INSERT_OPERATION_OPT_VAL = WriteOperationType.INSERT.value
   val UPSERT_OPERATION_OPT_VAL = WriteOperationType.UPSERT.value
@@ -196,6 +212,23 @@ object DataSourceWriteOptions {
   val OPERATION: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.operation")
     .defaultValue(UPSERT_OPERATION_OPT_VAL)
+    .withValidValues(
+      WriteOperationType.INSERT.value,
+      WriteOperationType.INSERT_PREPPED.value,
+      WriteOperationType.UPSERT.value,
+      WriteOperationType.UPSERT_PREPPED.value,
+      WriteOperationType.BULK_INSERT.value,
+      WriteOperationType.BULK_INSERT_PREPPED.value,
+      WriteOperationType.DELETE.value,
+      WriteOperationType.BOOTSTRAP.value,
+      WriteOperationType.INSERT_OVERWRITE.value,
+      WriteOperationType.CLUSTER.value,
+      WriteOperationType.DELETE_PARTITION.value,
+      WriteOperationType.INSERT_OVERWRITE_TABLE.value,
+      WriteOperationType.COMPACT.value,
+      WriteOperationType.INSERT.value,
+      WriteOperationType.ALTER_SCHEMA.value
+    )
     .withDocumentation("Whether to do upsert, insert or bulkinsert for the write operation. " +
       "Use bulkinsert to load new data into a table, and there on use upsert/insert. " +
       "bulk insert uses a disk based write path to scale to load large inputs without need to cache it.")
@@ -206,6 +239,7 @@ object DataSourceWriteOptions {
   val TABLE_TYPE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.table.type")
     .defaultValue(COW_TABLE_TYPE_OPT_VAL)
+    .withValidValues(COW_TABLE_TYPE_OPT_VAL, MOR_TABLE_TYPE_OPT_VAL)
     .withAlternatives("hoodie.datasource.write.storage.type")
     .withDocumentation("The table type for the underlying data, for this write. This can’t change between writes.")
 
@@ -294,7 +328,8 @@ object DataSourceWriteOptions {
       Option.of(classOf[NonpartitionedKeyGenerator].getName)
     } else {
       val numOfPartFields = p.getString(PARTITIONPATH_FIELD).split(",").length
-      if (numOfPartFields == 1) {
+      val numOfRecordKeyFields = p.getString(RECORDKEY_FIELD).split(",").length
+      if (numOfPartFields == 1 && numOfRecordKeyFields == 1) {
         Option.of(classOf[SimpleKeyGenerator].getName)
       } else {
         Option.of(classOf[ComplexKeyGenerator].getName)
@@ -455,10 +490,6 @@ object DataSourceWriteOptions {
   @Deprecated
   val HIVE_SYNC_COMMENT: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_COMMENT;
 
-  val HIVE_SYNC_USE_KERBEROS: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_USE_KERBEROS;
-
-  val HIVE_SYNC_KERBEROS_PRINCIPAL: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_KERBEROS_PRINCIPAL;
-
   // Async Compaction - Enabled by default for MOR
   val ASYNC_COMPACT_ENABLE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.compaction.async.enable")
@@ -475,11 +506,7 @@ object DataSourceWriteOptions {
     .sinceVersion("0.9.0")
     .withDocumentation("This class is used by kafka client to deserialize the records")
 
-  val DROP_PARTITION_COLUMNS: ConfigProperty[String] = ConfigProperty
-    .key("hoodie.datasource.write.drop.partition.columns")
-    .defaultValue("false")
-    .withDocumentation("When set to true, will not write the partition columns into hudi. " +
-      "By default, false.")
+  val DROP_PARTITION_COLUMNS: ConfigProperty[Boolean] = HoodieTableConfig.DROP_PARTITION_COLUMNS
 
   /** @deprecated Use {@link HIVE_ASSUME_DATE_PARTITION} and its methods instead */
   @Deprecated
@@ -513,13 +540,13 @@ object DataSourceWriteOptions {
   val HIVE_SYNC_ENABLED_OPT_KEY = HiveSyncConfig.HIVE_SYNC_ENABLED.key()
   /** @deprecated Use {@link META_SYNC_ENABLED} and its methods instead */
   @Deprecated
-  val META_SYNC_ENABLED_OPT_KEY = HoodieSyncConfig.META_SYNC_DATABASE_NAME.key()
+  val META_SYNC_ENABLED_OPT_KEY = HoodieSyncConfig.META_SYNC_ENABLED.key()
   /** @deprecated Use {@link HIVE_DATABASE} and its methods instead */
   @Deprecated
   val HIVE_DATABASE_OPT_KEY = HoodieSyncConfig.META_SYNC_DATABASE_NAME.key()
   /** @deprecated Use {@link HIVE_TABLE} and its methods instead */
   @Deprecated
-  val HIVE_TABLE_OPT_KEY = HoodieSyncConfig.META_SYNC_DATABASE_NAME.key()
+  val HIVE_TABLE_OPT_KEY = HoodieSyncConfig.META_SYNC_TABLE_NAME.key()
   /** @deprecated Use {@link HIVE_BASE_FILE_FORMAT} and its methods instead */
   @Deprecated
   val HIVE_BASE_FILE_FORMAT_OPT_KEY = HoodieSyncConfig.META_SYNC_BASE_FILE_FORMAT.key()
@@ -778,5 +805,24 @@ object DataSourceOptionsHelper {
     new JavaFunction[From, To] {
       override def apply (input: From): To = function (input)
     }
+  }
+
+  implicit def convert[T, U](prop: ConfigProperty[T])(implicit converter: T => U): ConfigProperty[U] = {
+    checkState(prop.hasDefaultValue)
+    var newProp: ConfigProperty[U] = ConfigProperty.key(prop.key())
+      .defaultValue(converter(prop.defaultValue()))
+      .withDocumentation(prop.doc())
+      .withAlternatives(prop.getAlternatives.asScala: _*)
+
+    newProp = toScalaOption(prop.getSinceVersion) match {
+      case Some(version) => newProp.sinceVersion(version)
+      case None => newProp
+    }
+    newProp = toScalaOption(prop.getDeprecatedVersion) match {
+      case Some(version) => newProp.deprecatedAfter(version)
+      case None => newProp
+    }
+
+    newProp
   }
 }

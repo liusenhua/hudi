@@ -19,7 +19,7 @@
   <parent>
     <artifactId>hudi</artifactId>
     <groupId>org.apache.hudi</groupId>
-    <version>0.11.0-SNAPSHOT</version>
+    <version>0.12.0-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
@@ -29,6 +29,7 @@
   <properties>
     <checkstyle.skip>true</checkstyle.skip>
     <main.basedir>${project.parent.basedir}</main.basedir>
+    <javax.servlet.version>3.1.0</javax.servlet.version>
   </properties>
 
   <build>
@@ -80,6 +81,7 @@
                   <include>org.apache.hudi:hudi-timeline-service</include>
                   <include>org.apache.hudi:hudi-aws</include>
 
+                  <include>javax.servlet:javax.servlet-api</include>
                   <include>com.beust:jcommander</include>
                   <include>io.javalin:javalin</include>
                   <!-- Spark only has mortbay jetty -->
@@ -95,6 +97,7 @@
 
                   <include>com.github.davidmoten:guava-mini</include>
                   <include>com.github.davidmoten:hilbert-curve</include>
+                  <include>com.github.ben-manes.caffeine:caffeine</include>
                   <include>com.twitter:bijection-avro_${scala.binary.version}</include>
                   <include>com.twitter:bijection-core_${scala.binary.version}</include>
                   <include>io.dropwizard.metrics:metrics-core</include>
@@ -136,6 +139,17 @@
                 </includes>
               </artifactSet>
               <relocations>
+                <!-- NOTE: We have to relocate all classes w/in org.apache.spark.sql.avro to avoid
+                           potential classpath collisions in case users would like to also use "spark-avro" w/in
+                           their runtime, since Hudi carries some of the same classes as "spark-avro" -->
+                <relocation>
+                  <pattern>javax.servlet.</pattern>
+                  <shadedPattern>org.apache.hudi.javax.servlet.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.apache.spark.sql.avro.</pattern>
+                  <shadedPattern>org.apache.hudi.org.apache.spark.sql.avro.</shadedPattern>
+                </relocation>
                 <relocation>
                   <pattern>com.yammer.metrics.</pattern>
                   <shadedPattern>org.apache.hudi.com.yammer.metrics.</shadedPattern>
@@ -162,10 +176,6 @@
                 <relocation>
                   <pattern>org.apache.htrace.</pattern>
                   <shadedPattern>org.apache.hudi.org.apache.htrace.</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>org.apache.spark.sql.avro.</pattern>
-                  <shadedPattern>${spark.bundle.spark.shade.prefix}org.apache.spark.sql.avro.</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.apache.hive.jdbc.</pattern>
@@ -209,7 +219,7 @@
                 </relocation>
                 <relocation>
                   <pattern>com.google.common.</pattern>
-                  <shadedPattern>${spark.bundle.spark.shade.prefix}com.google.common.</shadedPattern>
+                  <shadedPattern>org.apache.hudi.com.google.common.</shadedPattern>
                 </relocation>
                 <!-- TODO: Revisit GH ISSUE #533 & PR#633-->
                 <!-- The classes below in org.apache.hadoop.metrics2 package come from
@@ -363,13 +373,6 @@
       <version>${project.version}</version>
     </dependency>
 
-    <!-- Spark (Packages) -->
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-avro_${scala.binary.version}</artifactId>
-      <scope>${spark.bundle.avro.scope}</scope>
-    </dependency>
-
     <!-- Parquet -->
     <dependency>
       <groupId>org.apache.parquet</groupId>
@@ -383,6 +386,12 @@
       <artifactId>hive-exec</artifactId>
       <version>${hive.version}</version>
       <scope>${spark.bundle.hive.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>servlet-api</artifactId>
+          <groupId>javax.servlet</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <dependency>
@@ -438,6 +447,13 @@
       <artifactId>curator-recipes</artifactId>
       <version>${zk-curator.version}</version>
     </dependency>
+
+    <dependency>
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
+      <version>${javax.servlet.version}</version>
+    </dependency>
+
     <!-- TODO: Reinvestigate PR 633 -->
   </dependencies>
 

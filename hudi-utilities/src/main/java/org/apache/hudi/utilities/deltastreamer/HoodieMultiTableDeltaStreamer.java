@@ -27,6 +27,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.ValidationUtils;
+import org.apache.hudi.hive.HiveSyncTool;
 import org.apache.hudi.sync.common.HoodieSyncConfig;
 import org.apache.hudi.utilities.IdentitySplitter;
 import org.apache.hudi.exception.HoodieException;
@@ -203,6 +204,7 @@ public class HoodieMultiTableDeltaStreamer {
     static void deepCopyConfigs(Config globalConfig, HoodieDeltaStreamer.Config tableConfig) {
       tableConfig.enableHiveSync = globalConfig.enableHiveSync;
       tableConfig.enableMetaSync = globalConfig.enableMetaSync;
+      tableConfig.syncClientToolClassNames = globalConfig.syncClientToolClassNames;
       tableConfig.schemaProviderClassName = globalConfig.schemaProviderClassName;
       tableConfig.sourceOrderingField = globalConfig.sourceOrderingField;
       tableConfig.sourceClassName = globalConfig.sourceClassName;
@@ -224,6 +226,8 @@ public class HoodieMultiTableDeltaStreamer {
       tableConfig.compactSchedulingWeight = globalConfig.compactSchedulingWeight;
       tableConfig.deltaSyncSchedulingMinShare = globalConfig.deltaSyncSchedulingMinShare;
       tableConfig.deltaSyncSchedulingWeight = globalConfig.deltaSyncSchedulingWeight;
+      tableConfig.clusterSchedulingWeight = globalConfig.clusterSchedulingWeight;
+      tableConfig.clusterSchedulingMinShare = globalConfig.clusterSchedulingMinShare;
       tableConfig.sparkMaster = globalConfig.sparkMaster;
     }
   }
@@ -323,6 +327,9 @@ public class HoodieMultiTableDeltaStreamer {
     @Parameter(names = {"--enable-sync"}, description = "Enable syncing meta")
     public Boolean enableMetaSync = false;
 
+    @Parameter(names = {"--sync-tool-classes"}, description = "Meta sync client tool, using comma to separate multi tools")
+    public String syncClientToolClassNames = HiveSyncTool.class.getName();
+
     @Parameter(names = {"--max-pending-compactions"},
         description = "Maximum number of outstanding inflight/requested compactions. Delta Sync will not happen unless"
         + "outstanding compactions is less than this number")
@@ -376,6 +383,14 @@ public class HoodieMultiTableDeltaStreamer {
      */
     @Parameter(names = {"--checkpoint"}, description = "Resume Delta Streamer from this checkpoint.")
     public String checkpoint = null;
+
+    @Parameter(names = {"--cluster-scheduling-weight"}, description = "Scheduling weight for clustering as defined in "
+        + "https://spark.apache.org/docs/latest/job-scheduling.html")
+    public Integer clusterSchedulingWeight = 1;
+
+    @Parameter(names = {"--cluster-scheduling-minshare"}, description = "Minshare for clustering as defined in "
+        + "https://spark.apache.org/docs/latest/job-scheduling.html")
+    public Integer clusterSchedulingMinShare = 0;
 
     @Parameter(names = {"--help", "-h"}, help = true)
     public Boolean help = false;
