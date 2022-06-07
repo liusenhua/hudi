@@ -19,7 +19,7 @@
 package org.apache.hudi.sink.utils;
 
 import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.hudi.aws.sync.AwsGlueCatalogSyncTool;
+//import org.apache.hudi.aws.sync.AwsGlueCatalogSyncTool;
 import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.configuration.FlinkOptions;
@@ -54,7 +54,7 @@ public class HiveSyncContext {
   public HiveSyncTool hiveSyncTool() {
     HiveSyncMode syncMode = HiveSyncMode.of(syncConfig.syncMode);
     if (syncMode == HiveSyncMode.GLUE) {
-      return new AwsGlueCatalogSyncTool(this.syncConfig, this.hiveConf, this.fs);
+      //return new AwsGlueCatalogSyncTool(this.syncConfig, this.hiveConf, this.fs);
     }
     return new HiveSyncTool(this.syncConfig, this.hiveConf, this.fs);
   }
