@@ -58,11 +58,6 @@ public class BucketStreamWriteFunction<I> extends StreamWriteFunction<I> {
   private String indexKeyFields;
 
   /**
-   * BucketID should be loaded in this task.
-   */
-  private Set<Integer> bucketToLoad;
-
-  /**
    * BucketID to file group mapping in each partition.
    * Map(partition -> Map(bucketId, fileID)).
    */
@@ -74,11 +69,6 @@ public class BucketStreamWriteFunction<I> extends StreamWriteFunction<I> {
    * all the records in one bucket should have the same bucket type.
    */
   private Set<String> incBucketIndex;
-
-  /**
-   * Returns whether this is an empty table.
-   */
-  private boolean isEmptyTable;
 
   /**
    * Constructs a BucketStreamWriteFunction.
@@ -96,10 +86,8 @@ public class BucketStreamWriteFunction<I> extends StreamWriteFunction<I> {
     this.indexKeyFields = config.getString(FlinkOptions.INDEX_KEY_FIELD);
     this.taskID = getRuntimeContext().getIndexOfThisSubtask();
     this.parallelism = getRuntimeContext().getNumberOfParallelSubtasks();
-    this.bucketToLoad = getBucketToLoad();
     this.bucketIndex = new HashMap<>();
     this.incBucketIndex = new HashSet<>();
-    this.isEmptyTable = !this.metaClient.getActiveTimeline().filterCompletedInstants().lastInstant().isPresent();
   }
 
   @Override
@@ -142,19 +130,12 @@ public class BucketStreamWriteFunction<I> extends StreamWriteFunction<I> {
   }
 
   /**
-   * Bootstrap bucket info from existing file system,
-   * bucketNum % totalParallelism == this taskID belongs to this task.
+   * Determine whether the current fileID belongs to the current task.
+   * (partition + curBucket) % numPartitions == this taskID belongs to this task.
    */
-  private Set<Integer> getBucketToLoad() {
-    Set<Integer> bucketToLoad = new HashSet<>();
-    for (int i = 0; i < bucketNum; i++) {
-      int partitionOfBucket = BucketIdentifier.mod(i, parallelism);
-      if (partitionOfBucket == taskID) {
-        bucketToLoad.add(i);
-      }
-    }
-    LOG.info("Bucket number that belongs to task [{}/{}]: {}", taskID, parallelism, bucketToLoad);
-    return bucketToLoad;
+  public boolean isBucketToLoad(int bucketNumber, String partition) {
+    int globalHash = ((partition + bucketNumber).hashCode()) & Integer.MAX_VALUE;
+    return BucketIdentifier.mod(globalHash, parallelism) == taskID;
   }
 
   /**
@@ -162,7 +143,7 @@ public class BucketStreamWriteFunction<I> extends StreamWriteFunction<I> {
    * This is a required operation for each restart to avoid having duplicate file ids for one bucket.
    */
   private void bootstrapIndexIfNeed(String partition) {
-    if (isEmptyTable || bucketIndex.containsKey(partition)) {
+    if (bucketIndex.containsKey(partition)) {
       return;
     }
     LOG.info(String.format("Loading Hoodie Table %s, with path %s", this.metaClient.getTableConfig().getTableName(),
@@ -170,10 +151,10 @@ public class BucketStreamWriteFunction<I> extends StreamWriteFunction<I> {
 
     // Load existing fileID belongs to this task
     Map<Integer, String> bucketToFileIDMap = new HashMap<>();
-    this.writeClient.getHoodieTable().getHoodieView().getLatestFileSlices(partition).forEach(fileSlice -> {
-      String fileID = fileSlice.getFileId();
+    this.writeClient.getHoodieTable().getFileSystemView().getAllFileGroups(partition).forEach(fileGroup -> {
+      String fileID = fileGroup.getFileGroupId().getFileId();
       int bucketNumber = BucketIdentifier.bucketIdFromFileId(fileID);
-      if (bucketToLoad.contains(bucketNumber)) {
+      if (isBucketToLoad(bucketNumber, partition)) {
         LOG.info(String.format("Should load this partition bucket %s with fileID %s", bucketNumber, fileID));
         if (bucketToFileIDMap.containsKey(bucketNumber)) {
           throw new RuntimeException(String.format("Duplicate fileID %s from bucket %s of partition %s found "

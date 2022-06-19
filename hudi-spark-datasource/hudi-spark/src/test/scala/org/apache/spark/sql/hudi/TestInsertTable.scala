@@ -26,7 +26,7 @@ import org.apache.spark.sql.SaveMode
 
 import java.io.File
 
-class TestInsertTable extends TestHoodieSqlBase {
+class TestInsertTable extends HoodieSparkSqlTestBase {
 
   test("Test Insert Into") {
     withTempDir { tmp =>
@@ -615,7 +615,7 @@ class TestInsertTable extends TestHoodieSqlBase {
           .setConf(spark.sessionState.newHadoopConf())
           .build()
 
-        assertResult(true)(new TableSchemaResolver(metaClient).isHasOperationField)
+        assertResult(true)(new TableSchemaResolver(metaClient).hasOperationField)
 
         spark.sql(
           s"""

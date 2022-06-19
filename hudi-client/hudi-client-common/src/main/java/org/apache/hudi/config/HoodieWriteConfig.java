@@ -150,7 +150,7 @@ public class HoodieWriteConfig extends HoodieConfig {
       .key("hoodie.table.base.file.format")
       .defaultValue(HoodieFileFormat.PARQUET)
       .withAlternatives("hoodie.table.ro.file.format")
-      .withDocumentation("");
+      .withDocumentation("Base file format to store all the base file data.");
 
   public static final ConfigProperty<String> BASE_PATH = ConfigProperty
       .key("hoodie.base.path")
@@ -172,11 +172,6 @@ public class HoodieWriteConfig extends HoodieConfig {
       .noDefaultValue()
       .withDocumentation("Schema string representing the latest schema of the table. Hudi passes this to "
           + "implementations of evolution of schema");
-
-  public static final ConfigProperty<Boolean> SCHEMA_EVOLUTION_ENABLE = ConfigProperty
-      .key("hoodie.schema.on.read.enable")
-      .defaultValue(false)
-      .withDocumentation("enable full schema evolution for hoodie");
 
   public static final ConfigProperty<Boolean> ENABLE_INTERNAL_SCHEMA_CACHE = ConfigProperty
       .key("hoodie.schema.cache.enable")
@@ -362,8 +357,8 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public static final ConfigProperty<Boolean> REFRESH_TIMELINE_SERVER_BASED_ON_LATEST_COMMIT = ConfigProperty
       .key("hoodie.refresh.timeline.server.based.on.latest.commit")
-      .defaultValue(false)
-      .withDocumentation("Refresh timeline in timeline server based on latest commit apart from timeline hash difference. By default (false), ");
+      .defaultValue(true)
+      .withDocumentation("Refresh timeline in timeline server based on latest commit apart from timeline hash difference. By default (true).");
 
   public static final ConfigProperty<Long> INITIAL_CONSISTENCY_CHECK_INTERVAL_MS = ConfigProperty
       .key("hoodie.consistency.check.initial_interval_ms")
@@ -925,11 +920,11 @@ public class HoodieWriteConfig extends HoodieConfig {
   }
 
   public boolean getSchemaEvolutionEnable() {
-    return getBoolean(SCHEMA_EVOLUTION_ENABLE);
+    return getBoolean(HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE);
   }
 
   public void setSchemaEvolutionEnable(boolean enable) {
-    setValue(SCHEMA_EVOLUTION_ENABLE, String.valueOf(enable));
+    setValue(HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE, String.valueOf(enable));
   }
 
   /**
@@ -1058,6 +1053,10 @@ public class HoodieWriteConfig extends HoodieConfig {
   public MarkerType getMarkersType() {
     String markerType = getString(MARKERS_TYPE);
     return MarkerType.valueOf(markerType.toUpperCase());
+  }
+
+  public boolean isHiveStylePartitioningEnabled() {
+    return getBooleanOrDefault(KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE);
   }
 
   public int getMarkersTimelineServerBasedBatchNumThreads() {
@@ -2136,7 +2135,7 @@ public class HoodieWriteConfig extends HoodieConfig {
     }
 
     public Builder withSchemaEvolutionEnable(boolean enable) {
-      writeConfig.setValue(SCHEMA_EVOLUTION_ENABLE, String.valueOf(enable));
+      writeConfig.setValue(HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE, String.valueOf(enable));
       return this;
     }
 
@@ -2464,10 +2463,17 @@ public class HoodieWriteConfig extends HoodieConfig {
       return this;
     }
 
+    public Builder withRefreshTimelineServerBasedOnLatestCommit(boolean refreshTimelineServerBasedOnLatestCommit) {
+      writeConfig.setValue(REFRESH_TIMELINE_SERVER_BASED_ON_LATEST_COMMIT, Boolean.toString(refreshTimelineServerBasedOnLatestCommit));
+      return this;
+    }
+
     protected void setDefaults() {
       writeConfig.setDefaultValue(MARKERS_TYPE, getDefaultMarkersType(engineType));
       // Check for mandatory properties
       writeConfig.setDefaults(HoodieWriteConfig.class.getName());
+      // Set default values of HoodieHBaseIndexConfig
+      writeConfig.setDefaults(HoodieHBaseIndexConfig.class.getName());
       // Make sure the props is propagated
       writeConfig.setDefaultOnCondition(
           !isIndexConfigSet, HoodieIndexConfig.newBuilder().withEngineType(engineType).fromProperties(
