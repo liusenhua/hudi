@@ -47,6 +47,11 @@ object HoodieProcedures {
     mapBuilder.put(DeleteMarkerProcedure.NAME, DeleteMarkerProcedure.builder)
     mapBuilder.put(ShowRollbacksProcedure.NAME, ShowRollbacksProcedure.builder)
     mapBuilder.put(ShowRollbackDetailProcedure.NAME, ShowRollbackDetailProcedure.builder)
+    mapBuilder.put(ExportInstantsProcedure.NAME, ExportInstantsProcedure.builder)
+    mapBuilder.put(ShowAllFileSystemViewProcedure.NAME, ShowAllFileSystemViewProcedure.builder)
+    mapBuilder.put(ShowLatestFileSystemViewProcedure.NAME, ShowLatestFileSystemViewProcedure.builder)
+    mapBuilder.put(ShowHoodieLogFileMetadataProcedure.NAME, ShowHoodieLogFileMetadataProcedure.builder)
+    mapBuilder.put(ShowHoodieLogFileRecordsProcedure.NAME, ShowHoodieLogFileRecordsProcedure.builder)
     mapBuilder.build
   }
 }
