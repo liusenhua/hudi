@@ -92,7 +92,7 @@ public class BulkInsertWriterHelper {
       String recordKey = keyGen.getRecordKey(record);
       String partitionPath = keyGen.getPartitionPath(record);
 
-      if ((lastKnownPartitionPath == null) || !lastKnownPartitionPath.equals(partitionPath) || !handle.canWrite()) {
+      if ((lastKnownPartitionPath == null) || !lastKnownPartitionPath.equals(partitionPath) || (handle == null) || !handle.canWrite()) {
         LOG.info("Creating new file for partition path " + partitionPath);
         handle = getRowCreateHandle(partitionPath);
         lastKnownPartitionPath = partitionPath;
